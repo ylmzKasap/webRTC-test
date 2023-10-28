@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Demo</title>
+  </head>
+  <body>
+    <h2>1. Create a new room</h2>
+    <button id="callButton">Create Room</button>
+    <div id="room-id"></div>
+    
+    <div id="join-room">
+      <h2>2. Join a Room</h2>
+      <input id="callInput" />
+      <button id="answerButton">Join</button>
+    </div>
+
+    <h2>3. Send Message</h2>
+
+    <button id="sendButton" disabled>Send</button>
+    <script type="module" src="/main.js"></script>
+ 
+    <input id="message-input" type="text">
+  </body>
+</html>
