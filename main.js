@@ -121,7 +121,7 @@ joinButton.onclick = async () => {
   localConnection.ondatachannel = receiveChannelCallback;
 
   const offerCandidates = collection(roomDoc, 'offerCandidates');
-  const answerCandidates = collection(roomDoc, 'offerCandidates');
+  const answerCandidates = collection(roomDoc, 'answerCandidates');
 
   localConnection.onicecandidate = (event) => {
     if (event.candidate) {
