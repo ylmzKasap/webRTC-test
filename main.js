@@ -53,15 +53,14 @@ createRoomButton.onclick = async () => {
 
   // Reference Firestore collections for signaling
   const roomsCollection = collection(firestore, 'rooms');
-  const roomDoc = doc(roomsCollection);
+  const newRoom = await addDoc(roomsCollection, {});
+  const roomDoc = doc(roomsCollection, newRoom.id);
+  console.log('Save room', roomDoc.id);
 
   roomID.innerText = `Room ID: ${roomDoc.id}`;
 
   const offerCandidates = collection(roomDoc, 'offerCandidates');
   const answerCandidates = collection(roomDoc, 'answerCandidates');
-
-  addDoc(offerCandidates, {})
-  addDoc(answerCandidates, {})
 
   // Get candidates for host, save to db
   localConnection.onicecandidate = (event) => {
@@ -89,7 +88,7 @@ createRoomButton.onclick = async () => {
   onSnapshot(roomDoc, async (snapshot) => {
     const data = snapshot.data();
     console.log('remote data', data, localConnection.currentRemoteDescription, data);
-    if (!localConnection.currentRemoteDescription && data) {;
+    if (!localConnection.currentRemoteDescription && data.sdp) {;
       const offerDescription = new RTCSessionDescription(data);
       localConnection.setRemoteDescription(offerDescription);
       console.log(`Offer from remote connection ${offerDescription.sdp}`);
@@ -102,6 +101,7 @@ createRoomButton.onclick = async () => {
         sdp: answerDescription.sdp,
       };
 
+    console.log('update answer' + roomDoc.id);
     await updateDoc(roomDoc, { answer });
     }
   });
@@ -125,7 +125,7 @@ joinButton.onclick = async () => {
 
   localConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      console.log(`Candidate for host ${event.candidate}`);
+      console.log(`Candidate for host ${event.candidate}`, roomDoc.id);;
       addDoc(offerCandidates, event.candidate.toJSON());
     }
   };
@@ -145,6 +145,7 @@ joinButton.onclick = async () => {
   // Listen for remote answer
   onSnapshot(roomDoc, (snapshot) => {
     const data = snapshot.data();
+     console.log('remote answer data', data);
     if (!localConnection.currentRemoteDescription && data?.answer) {
       const answerDescription = new RTCSessionDescription(data.answer);
       localConnection.setRemoteDescription(answerDescription);
