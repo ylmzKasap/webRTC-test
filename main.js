@@ -121,6 +121,7 @@ joinButton.onclick = async () => {
   localConnection.ondatachannel = receiveChannelCallback;
 
   const offerCandidates = collection(roomDoc, 'offerCandidates');
+  const answerCandidates = collection(roomDoc, 'offerCandidates');
 
   localConnection.onicecandidate = (event) => {
     if (event.candidate) {
@@ -150,6 +151,20 @@ joinButton.onclick = async () => {
       localConnection.setRemoteDescription(answerDescription);
       console.log(`Answer from remote connection ${answerDescription.sdp}`);
     }
+  });
+
+  // When answered, add candidate to peer connection
+  onSnapshot(answerCandidates, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === 'added') {
+        const data = change.doc.data();
+        if (data.candidate) {
+          const candidate = new RTCIceCandidate(data);
+          localConnection.addIceCandidate(candidate);
+          console.log(`Added ice candidate as player: ${candidate}`);
+        }
+      }
+    });
   });
 
   sendButton.disabled = false;
