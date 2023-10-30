@@ -60,12 +60,12 @@ createRoomButton.onclick = async () => {
   roomID.innerText = `Room ID: ${roomDoc.id}`;
 
   const offerCandidates = collection(roomDoc, 'offerCandidates');
+  const answerCandidates = collection(roomDoc, 'answerCandidates');
 
-  // Get candidates for host, save to db
+  // Get candidates for answered, save to db
   localConnection.onicecandidate = (event) => {
     if (event.candidate)  {
-      console.log(`Candidate for host ${event.candidate}`);
-      addDoc(offerCandidates, event.candidate.toJSON());
+      addDoc(answerCandidates, event.candidate.toJSON());
     };
   };
 
