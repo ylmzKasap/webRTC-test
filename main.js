@@ -44,7 +44,7 @@ const sendButton = document.getElementById('send-button');
 const messageInput = document.getElementById('message-input')
 
 
-// 2. Create an answer
+// 2. Create a room
 createRoomButton.onclick = async () => {
   sendChannel = localConnection.createDataChannel('sendDataChannel');
   console.log('Created send data channel');
@@ -60,6 +60,9 @@ createRoomButton.onclick = async () => {
   const offerCandidates = collection(roomDoc, 'offerCandidates');
   const answerCandidates = collection(roomDoc, 'answerCandidates');
 
+  addDoc(offerCandidates, {})
+  addDoc(answerCandidates, {})
+
   // Get candidates for host, save to db
   localConnection.onicecandidate = (event) => {
     if (event.candidate)  {
@@ -72,9 +75,12 @@ createRoomButton.onclick = async () => {
   onSnapshot(offerCandidates, (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
-        const candidate = new RTCIceCandidate(change.doc.data());
-        localConnection.addIceCandidate(candidate);
-        console.log(`Added ice candidate as host: ${candidate}`);
+        const data = change.doc.data();
+        if (data.candidate) {
+          const candidate = new RTCIceCandidate(change.doc.data());
+          localConnection.addIceCandidate(candidate);
+          console.log(`Added ice candidate as host: ${candidate}`);
+        }
       }
     });
   });
@@ -99,19 +105,6 @@ createRoomButton.onclick = async () => {
     await updateDoc(roomDoc, { answer });
     }
   });
-
-
-  // When answered, add candidate to peer connection
-  onSnapshot(answerCandidates, (snapshot) => {
-    console.log('answered', snapshot.docChanges());
-    snapshot.docChanges().forEach(async (change) => {
-      if (change.type === 'added') {  
-        const candidate = new RTCIceCandidate(change.doc.data());
-        localConnection.addIceCandidate(candidate);
-        console.log(`Added ice candidate as local: ${candidate}`);
-      }
-    });
-  })
 
   /* createRoomButton.disabled = true; */
   joinButton.disabled = true;
