@@ -1,6 +1,7 @@
 import './style.css'
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, addDoc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import generateRandomString from './functions/generate_random_string';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_API_KEY,
@@ -21,6 +22,12 @@ const servers = {
 };
 
 // Global State
+let authID = localStorage.getItem('authID');
+if (!authID) {
+  authID = generateRandomString(64);
+  localStorage.setItem('privateID', authID)
+}
+
 let localConnection = new RTCPeerConnection(servers);
 let sendChannel;
 let receiveChannel;
@@ -30,53 +37,120 @@ const firestore = getFirestore(app);
 
 // HTML elements
 const roomID = document.getElementById('room-id');
-const callButton = document.getElementById('callButton');
-const callInput = document.getElementById('callInput');
-const answerButton = document.getElementById('answerButton');
-const sendButton = document.getElementById('sendButton');
+const createRoomButton = document.getElementById('create-room-button');
+const roomIdInput = document.getElementById('room-id-input');
+const joinButton = document.getElementById('join-button');
+const sendButton = document.getElementById('send-button');
 const messageInput = document.getElementById('message-input')
 
 
-
-// 2. Create an offer
-callButton.onclick = async () => {
+// 2. Create an answer
+createRoomButton.onclick = async () => {
   sendChannel = localConnection.createDataChannel('sendDataChannel');
   console.log('Created send data channel');
   sendChannel.onopen = () => console.log('Opened send channel');
-  
   localConnection.ondatachannel = receiveChannelCallback;
 
   // Reference Firestore collections for signaling
-  const callsCollection = collection(firestore, 'calls');
-  const callDoc = doc(callsCollection);
+  const roomsCollection = collection(firestore, 'rooms');
+  const roomDoc = doc(roomsCollection);
 
-  roomID.innerText = `Room ID: ${callDoc.id}`;
+  roomID.innerText = `Room ID: ${roomDoc.id}`;
 
-  const offerCandidates = collection(callDoc, 'offerCandidates');
-  const answerCandidates = collection(callDoc, 'answerCandidates');
+  const offerCandidates = collection(roomDoc, 'offerCandidates');
+  const answerCandidates = collection(roomDoc, 'answerCandidates');
 
-  // Get candidates for caller, save to db
+  // Get candidates for host, save to db
   localConnection.onicecandidate = (event) => {
     if (event.candidate)  {
-      console.log(`Candidate for caller ${event.candidate}`);
-      addDoc(offerCandidates, event.candidate.toJSON());
+      console.log(`Candidate for host ${event.candidate}`);
+      addDoc(answerCandidates, event.candidate.toJSON());
     };
   };
 
-  // Create offer
-  const offerDescription = await localConnection.createOffer();
-  await localConnection.setLocalDescription(offerDescription);
-  console.log(`Offer from local connection: ${offerDescription.sdp}`);
+  // When offered, add candidate to peer connection
+  onSnapshot(offerCandidates, (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === 'added') {
+        const candidate = new RTCIceCandidate(change.doc.data());
+        localConnection.addIceCandidate(candidate);
+        console.log(`Added ice candidate as host: ${candidate}`);
+      }
+    });
+  });
 
-  const offer = {
-    sdp: offerDescription.sdp,
-    type: offerDescription.type,
+  // Listen for remote offer
+  onSnapshot(roomDoc, async (snapshot) => {
+    const data = snapshot.data();
+    console.log('remote data', data, localConnection.currentRemoteDescription, data);
+    if (!localConnection.currentRemoteDescription && data) {;
+      const offerDescription = new RTCSessionDescription(data);
+      localConnection.setRemoteDescription(offerDescription);
+      console.log(`Offer from remote connection ${offerDescription.sdp}`);
+
+      const answerDescription = await localConnection.createAnswer();
+      await localConnection.setLocalDescription(answerDescription);
+
+      const answer = {
+        type: answerDescription.type,
+        sdp: answerDescription.sdp,
+      };
+
+    await updateDoc(roomDoc, { answer });
+    }
+  });
+
+
+  // When answered, add candidate to peer connection
+  onSnapshot(answerCandidates, (snapshot) => {
+    console.log('answered', snapshot.docChanges());
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === 'added') {  
+        const candidate = new RTCIceCandidate(change.doc.data());
+        localConnection.addIceCandidate(candidate);
+        console.log(`Added ice candidate as local: ${candidate}`);
+      }
+    });
+  })
+
+  /* createRoomButton.disabled = true; */
+  joinButton.disabled = true;
+  sendButton.disabled = false;
+};
+
+
+// 3. Send join request with the unique ID
+joinButton.onclick = async () => {
+  const roomId = roomIdInput.value;
+  const roomsCollection = collection(firestore, 'rooms');
+  const roomDoc = doc(roomsCollection, roomId);
+
+  sendChannel = localConnection.createDataChannel('sendDataChannel');
+  localConnection.ondatachannel = receiveChannelCallback;
+
+  const offerCandidates = collection(roomDoc, 'offerCandidates');
+
+  localConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      console.log(`Candidate for host ${event.candidate}`);
+      addDoc(offerCandidates, event.candidate.toJSON());
+    }
   };
 
-  await setDoc(callDoc, offer);
+   // Create offer
+   const offerDescription = await localConnection.createOffer();
+   await localConnection.setLocalDescription(offerDescription);
+   console.log(`Offer from local connection: ${offerDescription.sdp}`);
+ 
+   const offer = {
+     sdp: offerDescription.sdp,
+     type: offerDescription.type,
+   };
+ 
+   await setDoc(roomDoc, offer);
 
   // Listen for remote answer
-  onSnapshot(callDoc, (snapshot) => {
+  onSnapshot(roomDoc, (snapshot) => {
     const data = snapshot.data();
     if (!localConnection.currentRemoteDescription && data?.answer) {
       const answerDescription = new RTCSessionDescription(data.answer);
@@ -85,73 +159,8 @@ callButton.onclick = async () => {
     }
   });
 
-  // When answered, add candidate to peer connection
-  onSnapshot(answerCandidates, (snapshot) => {
-    snapshot.docChanges().forEach((change) => {
-      if (change.type === 'added') {
-        const candidate = new RTCIceCandidate(change.doc.data());
-        localConnection.addIceCandidate(candidate);
-        console.log(`Added ice candidate as local: ${candidate}`);
-      }
-    });
-  });
-
-  callButton.disabled = true;
-  answerButton.disabled = true;
   sendButton.disabled = false;
-};
-
-
-
-// 3. Answer the call with the unique ID
-answerButton.onclick = async () => {
-  const callId = callInput.value;
-  const callsCollection = collection(firestore, 'calls');
-  const callDoc = doc(callsCollection, callId);
-
-  sendChannel = localConnection.createDataChannel('sendDataChannel');
-  localConnection.ondatachannel = receiveChannelCallback;
-
-  const answerCandidates = collection(callDoc, 'answerCandidates');
-  const offerCandidates = collection(callDoc, 'offerCandidates');
-
-  localConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      console.log(`Candidate for callee ${event.candidate}`);
-      addDoc(answerCandidates, event.candidate.toJSON());
-    }
-  };
-
-  const callData = (await getDoc(callDoc)).data();
-
-  const offerDescription = callData;
-  console.log('offer', offerDescription);
-  await localConnection.setRemoteDescription(new RTCSessionDescription(offerDescription));
-
-  const answerDescription = await localConnection.createAnswer();
-  console.log('answer', offerDescription);
-  await localConnection.setLocalDescription(answerDescription);
-
-  const answer = {
-    type: answerDescription.type,
-    sdp: answerDescription.sdp,
-  };
-
-  await updateDoc(callDoc, { answer });
-
-  onSnapshot(offerCandidates, (snapshot) => {
-    snapshot.docChanges().forEach((change) => {
-      if (change.type === 'added') {
-        let data = change.doc.data();
-        let candidate = new RTCIceCandidate(data);
-        localConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log(`Candidate for callee (change) ${candidate}`);
-      }
-    });
-  });
-
-  sendButton.disabled = false;
-  callButton.disabled = true;
+  createRoomButton.disabled = true;
 };
 
 sendButton.onclick = async () => {
