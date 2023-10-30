@@ -60,13 +60,12 @@ createRoomButton.onclick = async () => {
   roomID.innerText = `Room ID: ${roomDoc.id}`;
 
   const offerCandidates = collection(roomDoc, 'offerCandidates');
-  const answerCandidates = collection(roomDoc, 'answerCandidates');
 
   // Get candidates for host, save to db
   localConnection.onicecandidate = (event) => {
     if (event.candidate)  {
       console.log(`Candidate for host ${event.candidate}`);
-      addDoc(answerCandidates, event.candidate.toJSON());
+      addDoc(offerCandidates, event.candidate.toJSON());
     };
   };
 
@@ -76,7 +75,7 @@ createRoomButton.onclick = async () => {
       if (change.type === 'added') {
         const data = change.doc.data();
         if (data.candidate) {
-          const candidate = new RTCIceCandidate(change.doc.data());
+          const candidate = new RTCIceCandidate(data);
           localConnection.addIceCandidate(candidate);
           console.log(`Added ice candidate as host: ${candidate}`);
         }
