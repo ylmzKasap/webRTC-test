@@ -5,21 +5,23 @@
     <link rel="icon" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WebRTC Demo</title>
-    <script type="module" src="/main.js"></script>
   </head>
   <body>
     <h2>1. Create a new room</h2>
-    <button id="create-room-button">Create Room</button>
+    <button id="callButton">Create Room</button>
     <div id="room-id"></div>
     
     <div id="join-room">
       <h2>2. Join a Room</h2>
-      <input id="room-id-input" />
-      <button id="join-button">Join</button>
+      <input id="callInput" />
+      <button id="answerButton">Join</button>
     </div>
 
     <h2>3. Send Message</h2>
+
+    <button id="sendButton" disabled>Send</button>
+    <script type="module" src="/main.js"></script>
+ 
     <input id="message-input" type="text">
-    <button id="send-button" disabled>Send</button>
   </body>
 </html>
