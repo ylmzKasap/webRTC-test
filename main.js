@@ -140,6 +140,13 @@ joinButton.onclick = async () => {
 
   sendChannel = localConnection.createDataChannel('sendDataChannel');
   localConnection.ondatachannel = receiveChannelCallback;
+
+  const requests = collection(roomDoc, 'requests');
+  const player = doc(roomDoc, 'players', authID);
+  const responsesDoc = collection(player, 'responses');
+  const answerCandidates = collection(player, 'answerCandidates');
+  const offerCandidates = collection(player, 'offerCandidates');
+
   localConnection.onicecandidate = (event) => {
     console.log('new offer candidate');
     if (event.candidate) {
@@ -147,12 +154,6 @@ joinButton.onclick = async () => {
       addDoc(offerCandidates, event.candidate.toJSON());
     }
   };
-
-  const requests = collection(roomDoc, 'requests');
-  const player = doc(roomDoc, 'players', authID);
-  const responsesDoc = collection(player, 'responses');
-  const answerCandidates = collection(player, 'answerCandidates');
-  const offerCandidates = collection(player, 'offerCandidates');
 
    // Create offer
    const offerDescription = await localConnection.createOffer();
