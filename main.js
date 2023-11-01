@@ -1,7 +1,6 @@
 import './style.css'
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, onSnapshot, doc, addDoc, getDoc, setDoc, updateDoc } from "firebase/firestore";
-import generateRandomString from './functions/generate_random_string';
+import { getFirestore, collection, onSnapshot, doc, addDoc, getDoc } from "firebase/firestore";
 import setAuthID from './functions/set_auth_id';
 
 const firebaseConfig = {
@@ -25,7 +24,6 @@ const servers = {
 // Global State
 const authID = setAuthID();
 const connections = [];
-let localConnection;
 let sendChannel;
 let receiveChannel;
 
@@ -104,7 +102,7 @@ createRoomButton.onclick = async () => {
             const data = change.doc.data();
             if (data.candidate) {
               const candidate = new RTCIceCandidate(data);
-              localConnection.addIceCandidate(candidate);
+              hostConnection.addIceCandidate(candidate);
               console.log(`Added ice candidate as host: ${candidate}`);
             }
           }
@@ -124,9 +122,7 @@ createRoomButton.onclick = async () => {
 
 // 3. Send join request with the unique ID
 joinButton.onclick = async () => {
-  if (!localConnection) {
-    localConnection = new RTCPeerConnection(servers);
-  }
+  const localConnection = new RTCPeerConnection(servers);
 
   const roomID = roomIdInput.value;
   const roomDoc = doc(collection(firestore, 'rooms'), roomID);
@@ -200,6 +196,7 @@ joinButton.onclick = async () => {
 
   sendButton.disabled = false;
   createRoomButton.disabled = true;
+  joinButton.disabled = true;
 };
 
 sendButton.onclick = async () => {
