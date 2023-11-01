@@ -140,6 +140,13 @@ joinButton.onclick = async () => {
 
   sendChannel = localConnection.createDataChannel('sendDataChannel');
   localConnection.ondatachannel = receiveChannelCallback;
+  localConnection.onicecandidate = (event) => {
+    console.log('new offer candidate');
+    if (event.candidate) {
+      console.log(`Candidate for host ${event.candidate}`, roomDoc.id);;
+      addDoc(offerCandidates, event.candidate.toJSON());
+    }
+  };
 
   const requests = collection(roomDoc, 'requests');
   const player = doc(roomDoc, 'players', authID);
@@ -172,14 +179,6 @@ joinButton.onclick = async () => {
         const answerDescription = new RTCSessionDescription(data.answer);
         localConnection.setRemoteDescription(answerDescription);
         console.log(`Answer from remote connection ${answerDescription.sdp}`);
-  
-        localConnection.onicecandidate = (event) => {
-          console.log('new offer candidate');
-          if (event.candidate) {
-            console.log(`Candidate for host ${event.candidate}`, roomDoc.id);;
-            addDoc(offerCandidates, event.candidate.toJSON());
-          }
-        };
       }
     })
   });
