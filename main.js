@@ -2,6 +2,7 @@ import './style.css'
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, addDoc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import generateRandomString from './functions/generate_random_string';
+import setAuthID from './functions/set_auth_id';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_API_KEY,
@@ -22,13 +23,9 @@ const servers = {
 };
 
 // Global State
-let authID = localStorage.getItem('authID');
-if (!authID) {
-  authID = generateRandomString(64);
-  localStorage.setItem('privateID', authID)
-}
-
-let localConnection = new RTCPeerConnection(servers);
+const authID = setAuthID();
+const connections = [];
+let localConnection;
 let sendChannel;
 let receiveChannel;
 
@@ -41,68 +38,82 @@ const createRoomButton = document.getElementById('create-room-button');
 const roomIdInput = document.getElementById('room-id-input');
 const joinButton = document.getElementById('join-button');
 const sendButton = document.getElementById('send-button');
-const messageInput = document.getElementById('message-input')
-
+const messageInput = document.getElementById('message-input');
+const error = document.getElementById('error');
 
 // 2. Create a room
 createRoomButton.onclick = async () => {
-  sendChannel = localConnection.createDataChannel('sendDataChannel');
-  console.log('Created send data channel');
-  sendChannel.onopen = () => console.log('Opened send channel');
-  localConnection.ondatachannel = receiveChannelCallback;
-
   // Reference Firestore collections for signaling
   const roomsCollection = collection(firestore, 'rooms');
   const newRoom = await addDoc(roomsCollection, {});
   const roomDoc = doc(roomsCollection, newRoom.id);
-  console.log('Save room', roomDoc.id);
 
   roomID.innerText = `Room ID: ${roomDoc.id}`;
 
-  const offerCandidates = collection(roomDoc, 'offerCandidates');
-  const answerCandidates = collection(roomDoc, 'answerCandidates');
-
-  // Get candidates for answered, save to db
-  localConnection.onicecandidate = (event) => {
-    if (event.candidate)  {
-      addDoc(answerCandidates, event.candidate.toJSON());
-    };
-  };
-
-  // When offered, add candidate to peer connection
-  onSnapshot(offerCandidates, (snapshot) => {
-    snapshot.docChanges().forEach(async (change) => {
-      if (change.type === 'added') {
-        const data = change.doc.data();
-        if (data.candidate) {
-          const candidate = new RTCIceCandidate(data);
-          localConnection.addIceCandidate(candidate);
-          console.log(`Added ice candidate as host: ${candidate}`);
-        }
-      }
-    });
-  });
+  const requests = collection(roomDoc, 'requests');
 
   // Listen for remote offer
-  onSnapshot(roomDoc, async (snapshot) => {
-    const data = snapshot.data();
-    console.log('remote data', data, localConnection.currentRemoteDescription, data);
-    if (!localConnection.currentRemoteDescription && data.sdp) {;
-      const offerDescription = new RTCSessionDescription(data);
-      localConnection.setRemoteDescription(offerDescription);
+  onSnapshot(requests, async (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (!change.doc) return;
+
+      const data = change.doc.data();
+      if (!data.offer || !data.playerID) return;
+
+      const players = collection(roomDoc, 'players');
+      const playerDoc = doc(players, data.playerID);
+
+      const responses = collection(playerDoc, 'responses');
+      const answerCandidates = collection(playerDoc, 'answerCandidates');
+      const offerCandidates = collection(playerDoc, 'offerCandidates');
+
+      let hostConnection = new RTCPeerConnection(servers);
+      hostConnection.onicecandidate = (event) => {
+        if (event.candidate)  {
+          addDoc(answerCandidates, event.candidate.toJSON());
+        };
+      };
+
+      const hostChannel = hostConnection.createDataChannel('sendDataChannel');
+      console.log('Created send data channel');
+      hostChannel.onopen = () => console.log('Opened host send channel');
+
+      hostConnection.ondatachannel = receiveChannelCallback;
+      connections.push({
+        playerID: data.playerID,
+        peerConnection: hostConnection,
+        sendChannel: hostChannel
+      })
+
+      const offerDescription = new RTCSessionDescription(data.offer);
+      hostConnection.setRemoteDescription(offerDescription);
       console.log(`Offer from remote connection ${offerDescription.sdp}`);
 
-      const answerDescription = await localConnection.createAnswer();
-      await localConnection.setLocalDescription(answerDescription);
+      const answerDescription = await hostConnection.createAnswer();
+      await hostConnection.setLocalDescription(answerDescription);
 
       const answer = {
         type: answerDescription.type,
         sdp: answerDescription.sdp,
       };
 
+      // Listen remote ice candidates
+      onSnapshot(offerCandidates, (snapshot) => {
+        snapshot.docChanges().forEach(async (change) => {
+          if (change.type === 'added') {
+            const data = change.doc.data();
+            if (data.candidate) {
+              const candidate = new RTCIceCandidate(data);
+              localConnection.addIceCandidate(candidate);
+              console.log(`Added ice candidate as host: ${candidate}`);
+            }
+          }
+        });
+      });
+
     console.log('update answer' + roomDoc.id);
-    await updateDoc(roomDoc, { answer });
-    }
+    await addDoc(responses, { answer }  );
+    })
   });
 
   /* createRoomButton.disabled = true; */
@@ -113,22 +124,28 @@ createRoomButton.onclick = async () => {
 
 // 3. Send join request with the unique ID
 joinButton.onclick = async () => {
-  const roomId = roomIdInput.value;
-  const roomsCollection = collection(firestore, 'rooms');
-  const roomDoc = doc(roomsCollection, roomId);
+  if (!localConnection) {
+    localConnection = new RTCPeerConnection(servers);
+  }
+
+  const roomID = roomIdInput.value;
+  const roomDoc = doc(collection(firestore, 'rooms'), roomID);
+
+  const room = (await getDoc(roomDoc));
+  if (!room.data()) {
+    return error.innerText = 'No such room'
+  } else {
+    error.innerText = ''
+  }
 
   sendChannel = localConnection.createDataChannel('sendDataChannel');
   localConnection.ondatachannel = receiveChannelCallback;
 
-  const offerCandidates = collection(roomDoc, 'offerCandidates');
-  const answerCandidates = collection(roomDoc, 'answerCandidates');
-
-  localConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      console.log(`Candidate for host ${event.candidate}`, roomDoc.id);;
-      addDoc(offerCandidates, event.candidate.toJSON());
-    }
-  };
+  const requests = collection(roomDoc, 'requests');
+  const player = doc(roomDoc, 'players', authID);
+  const responsesDoc = collection(player, 'responses');
+  const answerCandidates = collection(player, 'answerCandidates');
+  const offerCandidates = collection(player, 'offerCandidates');
 
    // Create offer
    const offerDescription = await localConnection.createOffer();
@@ -140,20 +157,34 @@ joinButton.onclick = async () => {
      type: offerDescription.type,
    };
  
-   await setDoc(roomDoc, offer);
+   await addDoc(requests, {offer: offer, playerID: authID});
 
   // Listen for remote answer
-  onSnapshot(roomDoc, (snapshot) => {
-    const data = snapshot.data();
-     console.log('remote answer data', data);
-    if (!localConnection.currentRemoteDescription && data?.answer) {
-      const answerDescription = new RTCSessionDescription(data.answer);
-      localConnection.setRemoteDescription(answerDescription);
-      console.log(`Answer from remote connection ${answerDescription.sdp}`);
-    }
+  onSnapshot(responsesDoc, (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (!change.doc) return;
+
+      const data = change.doc.data();
+      if (!data.answer) return;
+      console.log('remote answer data', data);
+
+      if (!localConnection.currentRemoteDescription && data?.answer) {
+        const answerDescription = new RTCSessionDescription(data.answer);
+        localConnection.setRemoteDescription(answerDescription);
+        console.log(`Answer from remote connection ${answerDescription.sdp}`);
+  
+        localConnection.onicecandidate = (event) => {
+          console.log('new offer candidate');
+          if (event.candidate) {
+            console.log(`Candidate for host ${event.candidate}`, roomDoc.id);;
+            addDoc(offerCandidates, event.candidate.toJSON());
+          }
+        };
+      }
+    })
   });
 
-  // When answered, add candidate to peer connection
+  // Listen remote ice candidates
   onSnapshot(answerCandidates, (snapshot) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === 'added') {
@@ -172,7 +203,11 @@ joinButton.onclick = async () => {
 };
 
 sendButton.onclick = async () => {
-  sendChannel.send(messageInput.value)  
+  if (sendChannel) {
+    sendChannel.send(messageInput.value);
+  } else {
+    connections.forEach(p => p.sendChannel.send(messageInput.value))
+  }
 }
 
 function receiveChannelCallback(event) {
